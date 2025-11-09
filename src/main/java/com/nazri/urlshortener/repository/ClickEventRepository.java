@@ -25,10 +25,10 @@ public class ClickEventRepository {
         clickEventTable.putItem(clickEvent);
     }
 
-    public List<ClickEvent> findByShortUrlId(String shortUrlId) {
-        QueryConditional queryConditional = QueryConditional.partitionValue(shortUrlId);
-        return clickEventTable.query(queryConditional).items().stream().collect(Collectors.toList());
-    }
+//    public List<ClickEvent> findByShortUrlId(String shortUrlId) {
+//        QueryConditional queryConditional = QueryConditional.partitionValue(shortUrlId);
+//        return clickEventTable.query(queryConditional).items().stream().collect(Collectors.toList());
+//    }
 
     public List<ClickEvent> findByShortUrlIdAndTimeRange(String shortUrlId, Long startTime, Long endTime) {
         QueryConditional queryConditional = QueryConditional.sortBetween(

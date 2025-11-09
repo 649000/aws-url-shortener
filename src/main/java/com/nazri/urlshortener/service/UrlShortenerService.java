@@ -38,6 +38,8 @@ public class UrlShortenerService {
         }
         
         String id = (customAlias != null && !customAlias.isEmpty()) ? customAlias : generateUniqueId();
+
+//        urlEntryRepository.getTable();
         long now = Instant.now().getEpochSecond();
 
         UrlEntry urlEntry = new UrlEntry();
@@ -76,6 +78,7 @@ public class UrlShortenerService {
         if (optionalUrlEntry.isPresent()) {
             UrlEntry urlEntry = optionalUrlEntry.get();
             long now = Instant.now().getEpochSecond();
+            //TODO: Consider using ENUM
             if ("ACTIVE".equals(urlEntry.getStatus()) && 
                 (urlEntry.getExpirationDate() == null || urlEntry.getExpirationDate() > now)) {
                 urlEntry.setAccessCount(urlEntry.getAccessCount() + 1);
@@ -104,6 +107,7 @@ public class UrlShortenerService {
         clickEventRepository.save(clickEvent);
     }
 
+    //TODO: Better way of generating unique ID
     private String generateUniqueId() {
         StringBuilder sb = new StringBuilder();
         Random random = new Random();
@@ -113,33 +117,33 @@ public class UrlShortenerService {
         return sb.toString();
     }
 
-    public List<ClickEvent> getClickEventsForUrl(String shortUrlId) {
-        return clickEventRepository.findByShortUrlId(shortUrlId);
-    }
-
-    public long getUniqueClicks(String shortUrlId) {
-        return getClickEventsForUrl(shortUrlId).stream()
-                .map(ClickEvent::getIpAddress)
-                .distinct()
-                .count();
-    }
-
-    public Map<String, Long> getClicksByCountry(String shortUrlId) {
-        return getClickEventsForUrl(shortUrlId).stream()
-                .collect(Collectors.groupingBy(ClickEvent::getCountry, Collectors.counting()));
-    }
-
-    public Map<String, Long> getClicksByReferrer(String shortUrlId) {
-        return getClickEventsForUrl(shortUrlId).stream()
-                .filter(click -> click.getReferrer() != null && !click.getReferrer().isEmpty())
-                .collect(Collectors.groupingBy(ClickEvent::getReferrer, Collectors.counting()));
-    }
-
-    public Map<String, Long> getClicksByUserAgent(String shortUrlId) {
-        return getClickEventsForUrl(shortUrlId).stream()
-                .filter(click -> click.getUserAgent() != null && !click.getUserAgent().isEmpty())
-                .collect(Collectors.groupingBy(ClickEvent::getUserAgent, Collectors.counting()));
-    }
+//    public List<ClickEvent> getClickEventsForUrl(String shortUrlId) {
+//        return clickEventRepository.findByShortUrlId(shortUrlId);
+//    }
+//
+//    public long getUniqueClicks(String shortUrlId) {
+//        return getClickEventsForUrl(shortUrlId).stream()
+//                .map(ClickEvent::getIpAddress)
+//                .distinct()
+//                .count();
+//    }
+//
+//    public Map<String, Long> getClicksByCountry(String shortUrlId) {
+//        return getClickEventsForUrl(shortUrlId).stream()
+//                .collect(Collectors.groupingBy(ClickEvent::getCountry, Collectors.counting()));
+//    }
+//
+//    public Map<String, Long> getClicksByReferrer(String shortUrlId) {
+//        return getClickEventsForUrl(shortUrlId).stream()
+//                .filter(click -> click.getReferrer() != null && !click.getReferrer().isEmpty())
+//                .collect(Collectors.groupingBy(ClickEvent::getReferrer, Collectors.counting()));
+//    }
+//
+//    public Map<String, Long> getClicksByUserAgent(String shortUrlId) {
+//        return getClickEventsForUrl(shortUrlId).stream()
+//                .filter(click -> click.getUserAgent() != null && !click.getUserAgent().isEmpty())
+//                .collect(Collectors.groupingBy(ClickEvent::getUserAgent, Collectors.counting()));
+//    }
 
     public List<ClickEvent> getClickEventsInTimeRange(String shortUrlId, Long startTime, Long endTime) {
         return clickEventRepository.findByShortUrlIdAndTimeRange(shortUrlId, startTime, endTime);

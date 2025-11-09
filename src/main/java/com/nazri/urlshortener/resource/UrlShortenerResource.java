@@ -14,6 +14,11 @@ import java.util.logging.Logger;
 
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
+import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableResponse;
 
 /**
  * Resource class for handling URL shortening and redirection operations.
@@ -22,7 +27,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 public class UrlShortenerResource {
 
     private static final Logger logger = Logger.getLogger(UrlShortenerResource.class.getName());
-    
+
     @Inject
     UrlShortenerService urlShortenerService;
 
