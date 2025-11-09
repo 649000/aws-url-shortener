@@ -4,11 +4,8 @@ import com.nazri.urlshortener.dto.ErrorDTO;
 import com.nazri.urlshortener.dto.ShortenRequestDTO;
 import com.nazri.urlshortener.service.UrlShortenerService;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.Consumes;
+import jakarta.validation.Valid;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
@@ -42,16 +39,8 @@ public class UrlShortenerResource {
     @Path("shorten")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public Response shortenUrl(ShortenRequestDTO request) {
+    public Response shortenUrl(@Valid ShortenRequestDTO request) {
         try {
-            // Validate input
-            if (request == null) {
-                ErrorDTO errorDTO = new ErrorDTO("Request body is required", Response.Status.BAD_REQUEST.getStatusCode());
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(errorDTO)
-                        .build();
-            }
-            
             // Placeholder for userId
             String userId = request.getUserId() != null && !request.getUserId().trim().isEmpty() ? request.getUserId() : "anonymous";
             
@@ -80,7 +69,7 @@ public class UrlShortenerResource {
      */
     @GET
     @Path("{id}")
-    public Response retrieveOriginalUrl(@jakarta.ws.rs.PathParam("id") String id) {
+    public Response retrieveOriginalUrl(@PathParam("id") String id) {
         try {
             // Validate input
             urlShortenerService.validateUrlId(id);

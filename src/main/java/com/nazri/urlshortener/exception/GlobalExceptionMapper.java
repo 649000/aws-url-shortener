@@ -1,17 +1,20 @@
 package com.nazri.urlshortener.exception;
 
 import com.nazri.urlshortener.dto.ErrorDTO;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import java.util.logging.Logger;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Provider
-public class GlobalExceptionMapper implements ExceptionMapper {
+public class GlobalExceptionMapper implements ExceptionMapper<Exception> {
     private static final Logger logger = Logger.getLogger(GlobalExceptionMapper.class.getName());
 
     @Override
-    public Response toResponse(Throwable exception) {
+    public Response toResponse(Exception exception) {
         logger.severe("Unexpected error occurred: " + exception.getMessage());
         exception.printStackTrace();
 
@@ -21,3 +24,5 @@ public class GlobalExceptionMapper implements ExceptionMapper {
                 .build();
     }
 }
+
+
