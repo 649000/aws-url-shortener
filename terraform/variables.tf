@@ -27,3 +27,21 @@ variable "deployment_type" {
 locals {
   environment = terraform.workspace == "default" ? var.environment : terraform.workspace
 }
+
+variable "enable_cloudfront" {
+  description = "Enable CloudFront distribution for the URL shortener"
+  type        = bool
+  default     = false
+}
+
+variable "cloudfront_domain_name" {
+  description = "Custom domain name for CloudFront distribution (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_certificate_arn" {
+  description = "ARN of the ACM certificate for CloudFront (required if using custom domain)"
+  type        = string
+  default     = ""
+}

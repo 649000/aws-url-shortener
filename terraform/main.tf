@@ -16,6 +16,16 @@ terraform {
     encrypt        = true
   }
 }
+
+# Get current workspace
+locals {
+  environment = terraform.workspace == "default" ? var.environment : terraform.workspace
+}
+
+# Project name for resource naming
+locals {
+  project_name = var.app_name
+}
 # Get current workspace
 locals {
   environment = terraform.workspace == "default" ? var.environment : terraform.workspace

@@ -10,6 +10,25 @@ resource "aws_apigatewayv2_api" "http_api" {
   }
 }
 
+# API Gateway domain name for CloudFront (if enabled)
+resource "aws_apigatewayv2_domain_name" "cloudfront" {
+  count = var.enable_cloudfront ? 1 : 0
+
+  domain_name = var.cloudfront_domain_name != "" ? var.cloudfront_domain_name : "${local.project_name}-cloudfront-${local.environment}.example.com"
+
+  domain_name_configuration {
+    certificate_arn = var.cloudfront_certificate_arn != "" ? var.cloudfront_certificate_arn : ""
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+
+  tags = {
+    environment = local.environment
+    project     = var.app_name
+    Description = "API Gateway domain name for CloudFront"
+  }
+}
+
 # HTTP API Gateway integration with Lambda
 resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id             = aws_apigatewayv2_api.http_api.id
@@ -96,5 +115,20 @@ resource "aws_apigatewayv2_stage" "stage" {
     environment = local.environment
     project     = var.app_name
     Description = "HTTP API Gateway stage"
+  }
+}
+
+# API Gateway domain name mapping for CloudFront (if enabled)
+resource "aws_apigatewayv2_api_mapping" "cloudfront" {
+  count = var.enable_cloudfront ? 1 : 0
+
+  api_id      = aws_apigatewayv2_api.http_api.id
+  domain_name = aws_apigatewayv2_domain_name.cloudfront[0].domain_name
+  stage       = aws_apigatewayv2_stage.stage.name
+
+  tags = {
+    environment = local.environment
+    project     = var.app_name
+    Description = "API Gateway domain name mapping for CloudFront"
   }
 }
