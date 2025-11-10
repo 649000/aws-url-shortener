@@ -1,7 +1,7 @@
 resource "aws_cloudfront_origin_access_control" "url_shortener" {
   count = var.enable_cloudfront ? 1 : 0
 
-  name                              = "${var.project_name}-origin-access-control"
+  name                              = "${var.app_name}-origin-access-control"
   description                       = "Origin Access Control for URL Shortener"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
@@ -12,7 +12,7 @@ resource "aws_cloudfront_distribution" "url_shortener" {
   count = var.enable_cloudfront ? 1 : 0
 
   origin {
-    domain_name = aws_api_gateway_rest_api.url_shortener.invoke_url
+    domain_name = aws_apigatewayv2_api.http_api.api_endpoint
     origin_id   = "api-gateway-origin"
 
     custom_origin_config {
