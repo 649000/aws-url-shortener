@@ -6,19 +6,14 @@ import com.nazri.urlshortener.service.UrlShortenerService;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+
 import java.net.URI;
 import java.util.Optional;
 import java.util.logging.Logger;
-
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.HttpHeaders;
-import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
-import software.amazon.awssdk.services.dynamodb.model.DescribeTableResponse;
 
 /**
  * Resource class for handling URL shortening and redirection operations.
@@ -36,7 +31,7 @@ public class UrlShortenerResource {
 
     /**
      * Creates a shortened URL from the provided original URL.
-     * 
+     *
      * @param request The ShortenRequest containing the original URL and optional parameters
      * @return A Response containing the shortened URL ID
      */
@@ -48,7 +43,7 @@ public class UrlShortenerResource {
         try {
             // Placeholder for userId
             String userId = request.getUserId() != null && !request.getUserId().trim().isEmpty() ? request.getUserId() : "anonymous";
-            
+
             String shortUrlId = urlShortenerService.shortenUrl(request.getUrl(), userId, request.getExpirationDate(), request.getCustomAlias());
             return Response.ok(String.format("{\"shortUrlId\": \"%s\"}", shortUrlId)).build();
         } catch (IllegalArgumentException e) {
@@ -68,7 +63,7 @@ public class UrlShortenerResource {
 
     /**
      * Retrieves the original URL for a given shortened URL ID and redirects to it.
-     * 
+     *
      * @param id The ID of the shortened URL
      * @return A Response that either redirects to the original URL or returns an error
      */
@@ -78,13 +73,13 @@ public class UrlShortenerResource {
         try {
             // Validate input
             urlShortenerService.validateUrlId(id);
-            
+
             String ipAddress = headers.getHeaderString("X-Forwarded-For");
             if (ipAddress != null && ipAddress.contains(",")) {
                 ipAddress = ipAddress.split(",")[0].trim();
             }
             if (ipAddress == null || ipAddress.isEmpty()) {
-                ipAddress = "Unknown"; 
+                ipAddress = "Unknown";
             }
             String userAgent = headers.getHeaderString("User-Agent");
             String referrer = headers.getHeaderString("Referer");
