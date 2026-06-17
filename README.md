@@ -4,120 +4,169 @@
 [![Quarkus](https://img.shields.io/badge/Quarkus-3.x-green.svg)](https://quarkus.io/)
 [![AWS](https://img.shields.io/badge/AWS-Serverless-orange.svg)](https://aws.amazon.com/)
 [![Terraform](https://img.shields.io/badge/Terraform-1.x-purple.svg)](https://www.terraform.io/)
-[![DynamoDB](https://img.shields.io/badge/DynamoDB-Serverless-blue.svg)](https://aws.amazon.com/dynamodb/)
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg)](./.github/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/Tests-95_passing-brightgreen.svg)](./src/test)
 
-A serverless URL shortener implementation built with Quarkus and deployed on AWS using a cloud-native architecture. The application demonstrates the use of serverless technologies for building scalable web applications.
+A serverless URL shortener built on Quarkus + AWS Lambda, wired to
+DynamoDB through API Gateway HTTP API (with optional CloudFront
+in front), and managed end-to-end by Terraform. Every commit runs
+through GitHub Actions: tests, lint, security scans, and a `terraform plan`
+for the dev environment.
 
-## Project Overview
+---
 
-This URL shortener is implemented using AWS serverless technologies. The application is built with Quarkus for performance and deployed using Infrastructure as Code (Terraform) on AWS.
+## Highlights
 
-Key Characteristics:
-- Serverless architecture with no server management required
-- Automatic scaling based on demand
-- Cost-effective with pay-per-use pricing model
-- Built with Quarkus framework for optimal performance
-- Infrastructure as Code with Terraform for reproducible deployments
-- Comprehensive monitoring and logging capabilities
+- Quarkus 3.x on AWS Lambda — both JVM (`java21`) and GraalVM
+  native-image (`provided.al2`) build paths are first-class citizens.
+- DynamoDB Enhanced Client with atomic click-counter updates (no
+  read-modify-write race).
+- Per-route throttling, access logs, custom domains, CORS baked into
+  API Gateway.
+- Observability by default: CloudWatch dashboard, metric alarms on
+  Lambda errors, API 5xx, and DynamoDB throttles, all wired to a single
+  SNS topic.
+- Multi-environment Terraform: `modules/` for reusable building blocks,
+  `envs/{dev,prod}` for composition, S3-backed remote state with a
+  DynamoDB lock table.
+- CI/CD on GitHub Actions: `terraform fmt`, `tflint`, `tfsec`, CodeQL,
+  Maven tests with JaCoCo, then OIDC-authenticated deploys (manual gate
+  for prod).
 
-## Technical Architecture
+## Architecture
 
-The application follows a serverless, cloud-native approach using AWS services:
+```
+                                     ┌──────────────────────────┐
+                                     │   CloudFront (optional)  │
+                                     │  ┌──────┐  ┌──────────┐  │
+                                     │  │ WAF  │  │ TLS 1.2  │  │
+                                     │  └──────┘  └──────────┘  │
+                                     └────────────┬─────────────┘
+                                                  │ HTTPS
+                                                  ▼
+                                     ┌──────────────────────────┐
+                                     │      API Gateway         │
+                                     │       (HTTP API v2)      │
+                                     │  · throttling            │
+                                     │  · access logs           │
+                                     │  · CORS                  │
+                                     └────────────┬─────────────┘
+                                                  │ AWS_PROXY (v2.0)
+                                                  ▼
+                                     ┌──────────────────────────┐
+                                     │       AWS Lambda         │
+                                     │   Quarkus runtime        │
+                                     │   (java21 / native)      │
+                                     └─────┬───────────────┬────┘
+                                           │               │
+                          ┌────────────────▼──┐    ┌──────▼──────────┐
+                          │   DynamoDB         │    │   DynamoDB      │
+                          │   url-entries      │    │   click-events  │
+                          │  (PAY_PER_REQUEST) │    │ (TTL + Streams) │
+                          └────────────────────┘    └─────────────────┘
+```
 
-### AWS Lambda
-The application logic is implemented as a serverless function that scales automatically with demand. Configuration includes:
-- Java 21 runtime (or native runtime for optimized performance)
-- 1024MB memory allocation
-- 30-second timeout for request processing
-- Environment variables for configuration management
+## Tech Stack
 
-### API Gateway
-Handles HTTP routing and exposes the application endpoints with:
-- Routes for URL shortening (`POST /shorten`) and redirection (`GET /{id}`)
-- Integration with the Lambda function
-- Deployment and staging management
-- Custom domain support
+| Layer | Choice | Why |
+|---|---|---|
+| Runtime | Quarkus 3.x on AWS Lambda | Fast cold start, native option, familiar Jakarta EE APIs |
+| Build | Maven | Standard Java toolchain |
+| API | API Gateway HTTP API v2 | ~70% cheaper than REST API, simpler auth model |
+| Data | DynamoDB (on-demand) | No capacity planning; atomic counters for click tracking |
+| Edge | CloudFront (optional) | Anycast + edge cache for redirects |
+| IaC | Terraform 1.x with `modules/` + `envs/` layout | Standard, reviewable, modular |
+| CI | GitHub Actions | First-class with the GitHub repo; OIDC for AWS |
 
-### DynamoDB
-Serverless NoSQL database for storing URL entries and click events:
-- `url-entries` table: Stores shortened URLs and their original destinations
-- `click-events` table: Tracks click analytics for each shortened URL
-- Provisioned capacity for predictable performance
+## Project Layout
 
-### CloudFront (Optional)
-When enabled, CloudFront provides:
-- Global content delivery with low latency
-- HTTPS enforcement for security
-- Caching of API responses for improved performance
-- Custom domain support with SSL certificates
+```
+.
+├── src/main/java/com/nazri/urlshortener/
+│   ├── resource/        # JAX-RS resources (UrlShortenerResource, AnalyticsResource)
+│   ├── service/         # Business logic
+│   ├── repository/      # DynamoDB Enhanced Client adapters
+│   ├── model/           # UrlEntry, ClickEvent, UrlStatus
+│   ├── dto/             # Request/response payloads + ErrorDTO
+│   └── exception/       # GlobalExceptionMapper, ValidationExceptionMapper
+├── src/test/            # 95 tests, ~88% line coverage (see target/site/jacoco)
+├── terraform/
+│   ├── modules/         # dynamodb, lambda, api-gateway, cloudfront, alarms
+│   ├── envs/dev/        # Dev composition + backend.hcl + dev.tfvars
+│   ├── envs/prod/       # Prod composition + backend.hcl + prod.tfvars
+│   └── README.md        # Bootstrap, OIDC, day-to-day workflow
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml             # Build, test, fmt, validate, tflint, tfsec, plan
+│   │   ├── deploy-dev.yml     # Auto-deploy on push to main
+│   │   ├── deploy-prod.yml    # Manual approval-gated deploy
+│   │   └── codeql.yml         # Weekly + per-PR security scan
+│   └── dependabot.yml         # Maven, GitHub Actions, Terraform providers
+└── README.md
+```
 
-### IAM & CloudWatch
-- IAM roles and policies for secure resource access
-- CloudWatch for comprehensive logging and monitoring
+## CI/CD
 
-## Features
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | PR + push to main | `mvn verify`, JaCoCo artifact upload, `terraform fmt -check`, `terraform validate`, `tflint`, `tfsec`, and `terraform plan` for dev (commented back on the PR) |
+| `deploy-dev.yml` | Push to main | Build + zip the Quarkus Lambda, `terraform apply` for dev, smoke test |
+| `deploy-prod.yml` | `workflow_dispatch` (typed confirmation) | Same as dev but for prod, with a manual approval gate in the GitHub Environment |
+| `codeql.yml` | PR + push + weekly cron | Security-and-quality scans over Java, Actions, and Terraform |
+| Dependabot | Weekly | Bumps Maven, GitHub Actions, and Terraform providers; groups minor + patch upgrades to avoid PR noise |
 
-- URL Shortening: Convert long URLs to short, shareable links
-- Click Analytics: Track how many times each shortened URL is accessed
-- Custom Domains: Support for custom domains via CloudFront
-- High Availability: Built on AWS serverless services for maximum uptime
-- Auto-scaling: Automatically scales to handle traffic spikes
-- Cost Efficient: Pay only for what you use with serverless pricing
+All AWS access uses GitHub OIDC when `AWS_ROLE_TO_ASSUME` is set, with a
+graceful fallback to `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets.
 
-## Architecture Rationale
+## Tests
 
-The serverless architecture was selected for this implementation based on the following considerations:
+```bash
+mvn clean verify
+```
 
-1. Operational Efficiency: No server management required, reducing operational overhead
-2. Scalability: Automatic scaling to handle varying traffic patterns
-3. Cost Optimization: Pay-per-use pricing model aligns with usage patterns
-4. Performance: Quarkus framework provides fast startup times and low memory usage
-5. Deployment Automation: Terraform enables reproducible, version-controlled deployments
+- 95 tests across unit + integration (`@QuarkusTest` + RestAssured)
+- ~88% line coverage, report at `target/site/jacoco/index.html`
+- Includes happy path, validation failures, expired/inactive URLs, custom
+  alias collisions, atomic-click-counter race coverage, and analytics
+  delegation tests
 
 ## Getting Started
 
 ### Prerequisites
+
 - Java 21+
-- Maven
-- AWS CLI configured
-- Terraform 1.0+
+- Maven 3.9+
+- Terraform 1.6+
+- AWS CLI (for deploys; not required for `mvn quarkus:dev`)
 
-### Running Locally
-You can run your application in dev mode that enables live coding using:
+### Local development
 
-```shell script
+```bash
+# Live-coding mode with hot reload
 mvn quarkus:dev
-```
 
-### Packaging
-The application can be packaged using:
-
-```shell script
-mvn package
-```
-
-
-### Creating a Native Executable
-You can create a native executable using:
-
-```shell script
+# Native build (requires GraalVM)
 mvn package -Dnative
-```
 
-Or, if you don't have GraalVM installed, you can run the native executable build in a container using:
-
-```shell script
+# Container-native build (no GraalVM install required)
 mvn package -Dnative -Dquarkus.native.container-build=true
 ```
 
-## Deployment
+### Deploy
 
-The application is deployed using Terraform with the following AWS resources:
-- Lambda function for the application
-- API Gateway for HTTP routing
-- DynamoDB tables for data storage
-- IAM roles and policies for permissions
-- CloudFront distribution (optional) for CDN
-- CloudWatch log groups for monitoring
+See [`terraform/README.md`](./terraform/README.md) for the full bootstrap
+(S3 state bucket + DynamoDB lock table + IAM OIDC role) and the day-to-day
+`terraform plan/apply` workflow.
 
-To deploy the application, use the Terraform configuration in the `terraform/` directory.
+## Observability
+
+Every environment ships with a CloudWatch dashboard
+(`{project}-{env}`) showing:
+
+- Lambda: invocations, errors, throttles, duration
+- API Gateway: request count, 4xx, 5xx, latency
+- DynamoDB: consumed read/write capacity + throttled requests for both tables
+
+A single SNS topic (`{project}-{env}-alarms`) fans out alarm
+notifications. Subscribe your email or PagerDuty endpoint via
+`alarm_email_endpoints` in the env's tfvars file.
