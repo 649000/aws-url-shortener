@@ -1,0 +1,152 @@
+name: Deploy (prod)
+
+# Manual trigger only. The `prod` GitHub Environment should require an
+# approval from a code owner before this workflow can run.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'deploy-prod' to confirm"
+        required: true
+        default: ''
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  ENVIRONMENT: prod
+
+jobs:
+  ###########################################################################
+  # Guard rail: refuse to run unless the user typed the right magic word.
+  ###########################################################################
+  guard:
+    name: Confirm deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm intent
+        if: github.event.inputs.confirm != 'deploy-prod'
+        run: |
+          echo "Refusing to deploy: confirm input was '${{ github.event.inputs.confirm }}', expected 'deploy-prod'."
+          exit 1
+
+  ###########################################################################
+  # Build + apply, gated on the guard above.
+  ###########################################################################
+  build:
+    name: Build Lambda artifact
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions.setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: mvn package
+        run: mvn -B clean package -DskipTests -DskipITs
+
+      - name: Assemble Lambda zip
+        working-directory: target
+        run: |
+          mkdir -p function
+          cp -r quarkus-app/* function/
+          (cd function && zip -qr ../function.zip .)
+
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_ROLE_TO_ASSUME != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_PROD }}
+          role-session-name: gha-deploy-prod
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: env.AWS_ROLE_TO_ASSUME == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish function code to S3
+        run: |
+          aws s3 cp target/function.zip "s3://${LAMBDA_BUCKET}/function.zip"
+        env:
+          LAMBDA_BUCKET: ${{ secrets.PROD_LAMBDA_BUCKET }}
+
+  deploy:
+    name: terraform apply (prod)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_ROLE_TO_ASSUME != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_PROD }}
+          role-session-name: gha-deploy-prod
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: env.AWS_ROLE_TO_ASSUME == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform init
+        working-directory: terraform/envs/prod
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: terraform plan (saved for the audit log)
+        working-directory: terraform/envs/prod
+        run: terraform plan -var-file=prod.tfvars -out=tfplan -no-color
+        # PR-comment-style artifact for easy review by approvers.
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-plan-${{ github.sha }}
+          path: terraform/envs/prod/tfplan
+          retention-days: 30
+
+      - name: terraform apply
+        working-directory: terraform/envs/prod
+        run: terraform apply -var-file=prod.tfvars -auto-approve tfplan
+
+      - name: Publish function code to Lambda
+        run: |
+          LAMBDA_FUNCTION=$(terraform output -raw lambda_function_name)
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --s3-bucket "${LAMBDA_BUCKET}" \
+            --s3-key "function.zip" \
+            --publish
+        working-directory: terraform/envs/prod
+        env:
+          LAMBDA_BUCKET: ${{ secrets.PROD_LAMBDA_BUCKET }}

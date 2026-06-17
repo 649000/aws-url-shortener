@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-flight runs of the same workflow on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write  # for posting `terraform plan` as a PR comment
+  checks: write          # for the tflint/tfsec/security annotation surface
+
+env:
+  JAVA_VERSION: '21'
+
+jobs:
+  ###########################################################################
+  # 1. Build + test the Java application.
+  ###########################################################################
+  build:
+    name: Build & test (Maven)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Verify (compile, test, package, JaCoCo)
+        run: mvn -B clean verify -DskipITs
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 14
+          if-no-files-found: warn
+
+  ###########################################################################
+  # 2. Terraform static analysis: fmt + validate + tflint + tfsec.
+  ###########################################################################
+  terraform-lint:
+    name: Terraform lint & security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      - name: terraform fmt -check -recursive
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      # Validate every module + env without contacting AWS. A fresh init
+      # per directory avoids .terraform cache contention.
+      - name: Validate all Terraform units
+        run: |
+          set -e
+          for d in terraform/modules/*/ terraform/envs/*/; do
+            echo "=== $d ==="
+            (cd "$d" && rm -rf .terraform && terraform init -backend=false -input=false >/dev/null && terraform validate -no-color)
+          done
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+      - run: tflint --recursive --init
+        working-directory: terraform
+        continue-on-error: false
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform
+          soft_fail: false
+
+  ###########################################################################
+  # 3. `terraform plan` for the dev env, posted to the PR as a comment.
+  ###########################################################################
+  terraform-plan:
+    name: terraform plan (dev)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build, terraform-lint]
+    timeout-minutes: 10
+    environment: dev-plan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      # Re-use OIDC if configured; fall back to long-lived secrets otherwise.
+      - name: Configure AWS credentials (OIDC)
+        if: hashFiles('.github/workflows/ci.yml') != '' && env.AWS_ROLE_TO_ASSUME != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: gha-terraform-plan
+          aws-region: ap-southeast-1
+
+      - name: Configure AWS credentials (access keys)
+        if: env.AWS_ROLE_TO_ASSUME == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: terraform init
+        working-directory: terraform/envs/dev
+        run: |
+          terraform init \
+            -backend-config=backend.hcl \
+            -input=false
+
+      - name: terraform plan
+        id: plan
+        working-directory: terraform/envs/dev
+        run: |
+          terraform plan -var-file=dev.tfvars -no-color -lock=false | tee plan.txt
+        continue-on-error: true
+
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/envs/dev/plan.txt', 'utf8');
+            const truncated = plan.length > 60000 ? plan.slice(0, 60000) + '\n...truncated...' : plan;
+            const body = `#### \`terraform plan\` (dev)\n<details><summary>show plan</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n</details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

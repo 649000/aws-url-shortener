@@ -1,0 +1,132 @@
+name: Deploy (dev)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+  actions: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  ENVIRONMENT: dev
+
+jobs:
+  ###########################################################################
+  # Build the Maven artifact and zip it into the shape Lambda expects.
+  ###########################################################################
+  build:
+    name: Build Lambda artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact_name: ${{ steps.publish.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: mvn package (skip tests; CI has already run them)
+        run: mvn -B clean package -DskipTests -DskipITs
+
+      # Quarkus produces target/quarkus-app/. Zip the whole directory into a
+      # shape Lambda's java21 runtime expects, plus the dependencies folder.
+      - name: Assemble Lambda zip
+        working-directory: target
+        run: |
+          mkdir -p function
+          cp -r quarkus-app/* function/
+          (cd function && zip -qr ../function.zip .)
+          ls -lh ../function.zip
+
+      - name: Upload artifact
+        id: publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: function-${{ github.sha }}
+          path: target/function.zip
+          retention-days: 7
+
+  ###########################################################################
+  # Apply the dev Terraform stack and upload the function code.
+  ###########################################################################
+  deploy:
+    name: terraform apply (dev)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      # OIDC is the modern approach; long-lived keys are still supported via
+      # the `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` secrets.
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_ROLE_TO_ASSUME != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: gha-deploy-dev
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: env.AWS_ROLE_TO_ASSUME == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform init
+        working-directory: terraform/envs/dev
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: terraform apply
+        working-directory: terraform/envs/dev
+        run: terraform apply -var-file=dev.tfvars -auto-approve
+
+      - name: Publish function code to Lambda
+        run: |
+          set -euo pipefail
+          aws s3 cp target/function.zip "s3://${LAMBDA_BUCKET}/function.zip"
+          aws lambda update-function-code \
+            --function-name "${LAMBDA_FUNCTION}" \
+            --s3-bucket "${LAMBDA_BUCKET}" \
+            --s3-key "function.zip" \
+            --publish
+        env:
+          LAMBDA_BUCKET: ${{ secrets.DEV_LAMBDA_BUCKET }}
+          LAMBDA_FUNCTION: ${{ secrets.DEV_LAMBDA_FUNCTION }}
+
+      - name: Smoke test
+        run: |
+          curl -fsS -o /dev/null -w "HTTP %{http_code}\n" "${SMOKE_URL}/health/ready"
+        env:
+          SMOKE_URL: ${{ steps.smoke.outputs.url }}
+        # If the API doesn't expose a health endpoint yet, swap the smoke
+        # check for a POST /shorten round-trip.
+      - id: smoke
+        run: |
+          URL=$(aws cloudformation describe-stacks --stack-name ignored 2>/dev/null || true)
+          API_URL=$(terraform output -raw api_invoke_url)
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+        working-directory: terraform/envs/dev

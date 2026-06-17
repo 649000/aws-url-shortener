@@ -1,0 +1,66 @@
+version: 2
+updates:
+  ###########################################################################
+  # Maven (Quarkus, AWS SDK, etc.).
+  ###########################################################################
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "java"
+    # Group minor + patch upgrades so we don't drown in PRs.
+    groups:
+      quarkus:
+        patterns:
+          - "io.quarkus:*"
+          - "io.quarkiverse:*"
+      aws-sdk:
+        patterns:
+          - "software.amazon.awssdk:*"
+      testing:
+        patterns:
+          - "org.junit.jupiter:*"
+          - "org.mockito:*"
+          - "io.rest-assured:*"
+          - "org.assertj:*"
+          - "org.jacoco:*"
+
+  ###########################################################################
+  # GitHub Actions runners / actions.
+  ###########################################################################
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  ###########################################################################
+  # Terraform providers (AWS, random, etc.).
+  ###########################################################################
+  - package-ecosystem: "terraform"
+    directory: "/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "terraform"
