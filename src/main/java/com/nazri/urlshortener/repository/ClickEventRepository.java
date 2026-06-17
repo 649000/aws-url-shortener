@@ -1,13 +1,13 @@
 package com.nazri.urlshortener.repository;
 
 import com.nazri.urlshortener.model.ClickEvent;
+import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -16,9 +16,10 @@ public class ClickEventRepository {
 
     private final DynamoDbTable<ClickEvent> clickEventTable;
 
-    @Inject
-    public ClickEventRepository(DynamoDbEnhancedClient dynamoDbEnhancedClient) {
-        this.clickEventTable = dynamoDbEnhancedClient.table("click_events", TableSchema.fromBean(ClickEvent.class));
+    public ClickEventRepository(
+            DynamoDbEnhancedClient dynamoDbEnhancedClient,
+            @ConfigProperty(name = "app.dynamodb.click-event-table") String tableName) {
+        this.clickEventTable = dynamoDbEnhancedClient.table(tableName, TableSchema.fromBean(ClickEvent.class));
     }
 
     public void save(ClickEvent clickEvent) {
@@ -26,14 +27,15 @@ public class ClickEventRepository {
     }
 
     public List<ClickEvent> findByShortUrlId(String shortUrlId) {
-        QueryConditional queryConditional = QueryConditional.keyEqualTo(keyBuilder -> keyBuilder.partitionValue(shortUrlId));
+        QueryConditional queryConditional = QueryConditional.keyEqualTo(
+                keyBuilder -> keyBuilder.partitionValue(shortUrlId));
         return clickEventTable.query(queryConditional).items().stream().collect(Collectors.toList());
     }
 
     public List<ClickEvent> findByShortUrlIdAndTimeRange(String shortUrlId, Long startTime, Long endTime) {
         QueryConditional queryConditional = QueryConditional.sortBetween(
-            keyBuilder -> keyBuilder.partitionValue(shortUrlId).sortValue(startTime),
-            keyBuilder -> keyBuilder.partitionValue(shortUrlId).sortValue(endTime)
+                keyBuilder -> keyBuilder.partitionValue(shortUrlId).sortValue(startTime),
+                keyBuilder -> keyBuilder.partitionValue(shortUrlId).sortValue(endTime)
         );
         return clickEventTable.query(queryConditional).items().stream().collect(Collectors.toList());
     }
