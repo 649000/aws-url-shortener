@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: Configure AWS credentials (OIDC)
         if: env.AWS_ROLE_TO_ASSUME != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_PROD }}
           role-session-name: gha-deploy-prod
@@ -78,7 +78,7 @@ jobs:
 
       - name: Configure AWS credentials (access keys)
         if: env.AWS_ROLE_TO_ASSUME == ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
@@ -97,16 +97,16 @@ jobs:
     timeout-minutes: 30
     environment: prod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.x
 
       - name: Configure AWS credentials (OIDC)
         if: env.AWS_ROLE_TO_ASSUME != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_PROD }}
           role-session-name: gha-deploy-prod
@@ -114,7 +114,7 @@ jobs:
 
       - name: Configure AWS credentials (access keys)
         if: env.AWS_ROLE_TO_ASSUME == ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
@@ -129,7 +129,7 @@ jobs:
         run: terraform plan -var-file=prod.tfvars -out=tfplan -no-color
         # PR-comment-style artifact for easy review by approvers.
       - name: Upload plan artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prod-plan-${{ github.sha }}
           path: terraform/envs/prod/tfplan

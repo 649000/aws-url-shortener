@@ -30,12 +30,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -46,7 +46,7 @@ jobs:
 
       - name: Upload JaCoCo coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
           path: target/site/jacoco/
@@ -61,10 +61,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.x
 
@@ -83,7 +83,7 @@ jobs:
           done
 
       - name: tflint
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: latest
       - run: tflint --recursive --init
@@ -107,17 +107,17 @@ jobs:
     timeout-minutes: 10
     environment: dev-plan
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.x
 
       # Re-use OIDC if configured; fall back to long-lived secrets otherwise.
       - name: Configure AWS credentials (OIDC)
         if: hashFiles('.github/workflows/ci.yml') != '' && env.AWS_ROLE_TO_ASSUME != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: gha-terraform-plan
@@ -125,7 +125,7 @@ jobs:
 
       - name: Configure AWS credentials (access keys)
         if: env.AWS_ROLE_TO_ASSUME == ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -146,7 +146,7 @@ jobs:
         continue-on-error: true
 
       - name: Post plan to PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
